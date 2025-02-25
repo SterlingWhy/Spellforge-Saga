@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spellforge Saga</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            background-color: #1a1a1a;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #333;
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            text-align: center;
+            display: none;
+        }
+        #gameOverScreen h1 {
+            color: #ff0000;
+            font-family: Arial, sans-serif;
+        }
+        #retryButton {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #00ff00;
+            border: none;
+            cursor: pointer;
+        }
+        #retryButton:hover {
+            background-color: #00cc00;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1600" height="1200"></canvas>
+    <div id="gameOverScreen">
+        <h1>Game Over</h1>
+        <button id="retryButton">Retry</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const retryButton = document.getElementById('retryButton');
+
+        // Load sprites
+        const playerImg = new Image(); playerImg.src = 'path/to/player.png';
+        const fireImg = new Image(); fireImg.src = 'path/to/fire.png';
+        const iceImg = new Image(); iceImg.src = 'path/to/ice.png';
+        const windImg = new Image(); windImg.src = 'path/to/wind.png';
+        const enemyImg = new Image(); enemyImg.src = 'path/to/enemy.png';
+        const relicImg = new Image(); relicImg.src = 'path/to/relic.png';
+        const manaOrbImg = new Image(); manaOrbImg.src = 'path/to/mana_orb.png';
+
+        // Load sounds
+        const shootSound = new Audio('path/to/shoot.wav');
+        const relicSound = new Audio('path/to/relic.wav');
+        const enemyDieSound = new Audio('path/to/enemy_die.wav');
+        const bumpSound = new Audio('path/to/bump.wav');
+
+        // Player object
+        const player = {
+            x: 400,
+            y: 300,
+            size: 40,
+            speed: 5,
+            health: 100,
+            maxHealth: 100,
+            manaPoints: 0,
+            maxMana: 50
+        };
+
+        // Camera object
+        const camera = {
+            x: 0,
+            y: 0,
+            width: canvas.width,
+            height: canvas.height
+        };
+
+        // Game state
+        let keys = {};
+        let projectiles = [];
+        let enemies = [];
+        let relics = [];
+        let manaOrbs = [];
+        let mouseX = 0;
+        let mouseY = 0;
+        let gameOver = false;
+
+        // Spell system
+        const spells = {
+            fire: { damage: 20, img: fireImg, level: 1, maxLevel: 3, upgradeCost: 5 },
+            ice: { damage: 10, slow: 0.5, img: iceImg, level: 1, maxLevel: 3, upgradeCost: 5 },
+            wind: { damage: 5, knockback: 10, img: windImg, level: 1, maxLevel: 3, upgradeCost: 5 }
+        };
+        let currentSpell = 'fire';
+
+        // Doubled dungeon map
+        const tileSize = 40;
+        const mapWidth = 60; // Doubled from 30
+        const mapHeight = 40; // Doubled from 20
+        const mapPixelWidth = mapWidth * tileSize; // 2400px
+        const mapPixelHeight = mapHeight * tileSize; // 1600px
+        let map = [];
+
+        // Event listeners
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === '1') currentSpell = 'fire';
+            if (e.key === '2') currentSpell = 'ice';
+            if (e.key === '3') currentSpell = 'wind';
+            if (e.key.toLowerCase() === 'u') upgradeSpell();
+        });
+        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left + camera.x;
+            mouseY = e.clientY - rect.top + camera.y;
+        });
+        canvas.addEventListener('click', shootSpell);
+        retryButton.addEventListener('click', resetGame);
+
+        // Generate larger map
+        function generateMap() {
+            map = Array(mapHeight).fill().map(() => Array(mapWidth).fill('wall'));
+            let x = Math.floor(mapWidth / 2);
+            let y = Math.floor(mapHeight / 2);
+            map[y][x] = 'floor';
+            for (let i = 0; i < 200; i++) { // Increased steps for larger map
+                let direction = Math.floor(Math.random() * 4);
+                if (direction === 0 && y > 1) y--;
+                if (direction === 1 && y < mapHeight - 2) y++;
+                if (direction === 2 && x > 1) x--;
+                if (direction === 3 && x < mapWidth - 2) x++;
+                map[y][x] = 'floor';
+            }
+            map[mapHeight - 2][mapWidth - 2] = 'exit';
+            player.x = x * tileSize + tileSize / 2;
+            player.y = y * tileSize + tileSize / 2;
+        }
+
+        function drawMap() {
+            for (let y = 0; y < mapHeight; y++) {
+                for (let x = 0; x < mapWidth; x++) {
+                    ctx.fillStyle = map[y][x] === 'wall' ? '#555' : map[y][x] === 'exit' ? '#ff0' : '#222';
+                    ctx.fillRect(x * tileSize - camera.x, y * tileSize - camera.y, tileSize, tileSize);
+                }
+            }
+        }
+
+        // Update camera
+        function updateCamera() {
+            camera.x = player.x - camera.width / 2;
+            camera.y = player.y - camera.height / 2;
+            camera.x = Math.max(0, Math.min(camera.x, mapPixelWidth - camera.width));
+            camera.y = Math.max(0, Math.min(camera.y, mapPixelHeight - camera.height));
+        }
+
+        // Collision detection
+        function checkCollision(x, y, size) {
+            const halfSize = size / 2;
+            const left = x - halfSize;
+            const right = x + halfSize - 1;
+            const top = y - halfSize;
+            const bottom = y + halfSize - 1;
+
+            const tileLeft = Math.floor(left / tileSize);
+            const tileRight = Math.floor(right / tileSize);
+            const tileTop = Math.floor(top / tileSize);
+            const tileBottom = Math.floor(bottom / tileSize);
+
+            if (tileLeft < 0 || tileRight >= mapWidth || tileTop < 0 || tileBottom >= mapHeight) return true;
+
+            return (map[tileTop][tileLeft] === 'wall' || map[tileTop][tileRight] === 'wall' ||
+                    map[tileBottom][tileLeft] === 'wall' || map[tileBottom][tileRight] === 'wall');
+        }
+
+        // Player movement
+        function updatePlayer() {
+            if (gameOver) return;
+
+            let dx = 0;
+            let dy = 0;
+            if (keys['w']) dy -= player.speed;
+            if (keys['s']) dy += player.speed;
+            if (keys['a']) dx -= player.speed;
+            if (keys['d']) dx += player.speed;
+
+            let newX = player.x + dx;
+            if (!checkCollision(newX, player.y, player.size)) {
+                player.x = newX;
+            } else {
+                bumpSound.play();
+            }
+
+            let newY = player.y + dy;
+            if (!checkCollision(player.x, newY, player.size)) {
+                player.y = newY;
+            } else if (dx === 0) {
+                bumpSound.play();
+            }
+
+            updateCamera();
+        }
+
+        // A* Pathfinding
+        function aStar(startX, startY, goalX, goalY) {
+            const openSet = [{ x: startX, y: startY, g: 0, h: heuristic(startX, startY, goalX, goalY), f: 0 }];
+            const closedSet = new Set();
+            const cameFrom = {};
+
+            while (openSet.length > 0) {
+                openSet.sort((a, b) => a.f - b.f);
+                const current = openSet.shift();
+                const key = `${current.x},${current.y}`;
+                if (current.x === goalX && current.y === goalY) return reconstructPath(cameFrom, current);
+
+                closedSet.add(key);
+                for (let [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+                    const neighbor = { x: current.x + dx, y: current.y + dy };
+                    if (neighbor.x < 0 || neighbor.x >= mapWidth || neighbor.y < 0 || neighbor.y >= mapHeight ||
+                        map[neighbor.y][neighbor.x] === 'wall' || closedSet.has(`${neighbor.x},${neighbor.y}`)) continue;
+
+                    const tentativeG = current.g + 1;
+                    let inOpenSet = openSet.find(n => n.x === neighbor.x && n.y === neighbor.y);
+                    if (!inOpenSet) {
+                        neighbor.g = tentativeG;
+                        neighbor.h = heuristic(neighbor.x, neighbor.y, goalX, goalY);
+                        neighbor.f = neighbor.g + neighbor.h;
+                        openSet.push(neighbor);
+                        cameFrom[`${neighbor.x},${neighbor.y}`] = current;
+                    } else if (tentativeG < inOpenSet.g) {
+                        inOpenSet.g = tentativeG;
+                        inOpenSet.f = inOpenSet.g + inOpenSet.h;
+                        cameFrom[`${neighbor.x},${neighbor.y}`] = current;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function heuristic(x1, y1, x2, y2) {
+            return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+        }
+
+        function reconstructPath(cameFrom, current) {
+            const path = [];
+            while (current) {
+                path.unshift({ x: current.x, y: current.y });
+                current = cameFrom[`${current.x},${current.y}`];
+            }
+            return path;
+        }
+
+        // Spell shooting
+        function shootSpell() {
+            if (gameOver) return;
+            const dx = mouseX - player.x;
+            const dy = mouseY - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const speed = 7;
+            const spell = {
+                x: player.x,
+                y: player.y,
+                vx: (dx / distance) * speed,
+                vy: (dy / distance) * speed,
+                size: 20,
+                ...spells[currentSpell]
+            };
+            spell.damage = spells[currentSpell].damage + (spells[currentSpell].level - 1) * 10;
+            spell.slow = spells[currentSpell].slow + (spells[currentSpell].level - 1) * 0.2;
+            spell.knockback = spells[currentSpell].knockback + (spells[currentSpell].level - 1) * 5;
+            projectiles.push(spell);
+            shootSound.play();
+        }
+
+        function updateProjectiles() {
+            projectiles.forEach((p, i) => {
+                const newX = p.x + p.vx;
+                const newY = p.y + p.vy;
+                if (checkCollision(newX, newY, p.size) || newX < 0 || newX > mapPixelWidth || newY < 0 || newY > mapPixelHeight) {
+                    projectiles.splice(i, 1);
+                } else {
+                    p.x = newX;
+                    p.y = newY;
+                }
+            });
+        }
+
+        // Enemies
+        function spawnEnemy() {
+            let x, y;
+            do {
+                x = Math.random() * mapPixelWidth;
+                y = Math.random() * mapPixelHeight;
+            } while (checkCollision(x, y, 30));
+            enemies.push({
+                x: x,
+                y: y,
+                size: 30,
+                speed: 0.5,
+                health: 50,
+                path: [],
+                lastPathUpdate: 0
+            });
+        }
+
+        function updateEnemies() {
+            enemies.forEach((e, ei) => {
+                const now = Date.now();
+                if (now - e.lastPathUpdate > 1000) {
+                    const startX = Math.floor(e.x / tileSize);
+                    const startY = Math.floor(e.y / tileSize);
+                    const goalX = Math.floor(player.x / tileSize);
+                    const goalY = Math.floor(player.y / tileSize);
+                    e.path = aStar(startX, startY, goalX, goalY) || [];
+                    e.lastPathUpdate = now;
+                }
+
+                if (e.path.length > 1) {
+                    const nextTile = e.path[1];
+                    const targetX = nextTile.x * tileSize + tileSize / 2;
+                    const targetY = nextTile.y * tileSize + tileSize / 2;
+                    const dx = targetX - e.x;
+                    const dy = targetY - e.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance > e.speed) {
+                        e.x += (dx / distance) * e.speed;
+                        e.y += (dy / distance) * e.speed;
+                    } else {
+                        e.x = targetX;
+                        e.y = targetY;
+                        e.path.shift();
+                    }
+                }
+
+                if (Math.hypot(player.x - e.x, player.y - e.y) < player.size / 2 + e.size / 2) {
+                    player.health -= 1;
+                    if (player.health <= 0) {
+                        gameOver = true;
+                        gameOverScreen.style.display = 'block';
+                    }
+                }
+
+                projectiles.forEach((p, pi) => {
+                    if (Math.hypot(p.x - e.x, p.y - e.y) < e.size / 2 + p.size / 2) {
+                        e.health -= p.damage;
+                        if (p.knockback) {
+                            e.x -= (p.vx / p.speed) * p.knockback;
+                            e.y -= (p.vy / p.speed) * p.knockback;
+                        }
+                        if (p.slow) e.speed = Math.max(0.5, 2 - p.slow);
+                        projectiles.splice(pi, 1);
+                        if (e.health <= 0) {
+                            enemies.splice(ei, 1);
+                            enemyDieSound.play();
+                            spawnManaOrb(e.x, e.y);
+                        }
+                    }
+                });
+            });
+        }
+
+        // Mana Orbs
+        function spawnManaOrb(x, y) {
+            manaOrbs.push({
+                x: x,
+                y: y,
+                size: 20
+            });
+        }
+
+        function updateManaOrbs() {
+            manaOrbs.forEach((orb, i) => {
+                if (Math.hypot(player.x - orb.x, player.y - orb.y) < player.size / 2 + orb.size / 2) {
+                    player.manaPoints = Math.min(player.maxMana, player.manaPoints + 1);
+                    manaOrbs.splice(i, 1);
+                }
+            });
+        }
+
+        // Spell Upgrade
+        function upgradeSpell() {
+            if (gameOver) return;
+            const spell = spells[currentSpell];
+            if (spell.level < spell.maxLevel && player.manaPoints >= spell.upgradeCost) {
+                player.manaPoints -= spell.upgradeCost;
+                spell.level += 1;
+                spell.upgradeCost += 5;
+            }
+        }
+
+        function resetSpells() {
+            spells.fire.level = 1; spells.fire.upgradeCost = 5;
+            spells.ice.level = 1; spells.ice.upgradeCost = 5;
+            spells.wind.level = 1; spells.wind.upgradeCost = 5;
+        }
+
+        // Relics
+        function spawnRelic() {
+            let x, y;
+            do {
+                x = Math.random() * mapPixelWidth;
+                y = Math.random() * mapPixelHeight;
+            } while (checkCollision(x, y, 20));
+            relics.push({
+                x: x,
+                y: y,
+                size: 20
+            });
+        }
+
+        function updateRelics() {
+            relics.forEach((r, i) => {
+                if (Math.hypot(player.x - r.x, player.y - r.y) < player.size / 2 + r.size / 2) {
+                    player.speed += 1;
+                    player.health = Math.min(player.maxHealth, player.health + 20);
+                    relics.splice(i, 1);
+                    relicSound.play();
+                }
+            });
+        }
+
+        // Reset game function
+        function resetGame() {
+            player.health = 100;
+            player.manaPoints = 0;
+            player.x = mapWidth / 2 * tileSize + tileSize / 2;
+            player.y = mapHeight / 2 * tileSize + tileSize / 2;
+            enemies = [];
+            projectiles = [];
+            relics = [];
+            manaOrbs = [];
+            resetSpells();
+            gameOver = false;
+            gameOverScreen.style.display = 'none';
+            generateMap();
+        }
+
+        // Drawing
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (!gameOver) {
+                drawMap();
+
+                ctx.drawImage(playerImg, player.x - camera.x - player.size / 2, player.y - camera.y - player.size / 2, player.size, player.size);
+                projectiles.forEach(p => {
+                    ctx.drawImage(p.img, p.x - camera.x - p.size / 2, p.y - camera.y - p.size / 2, p.size, p.size);
+                });
+                enemies.forEach(e => {
+                    ctx.drawImage(enemyImg, e.x - camera.x - e.size / 2, e.y - camera.y - e.size / 2, e.size, e.size);
+                });
+                relics.forEach(r => {
+                    ctx.drawImage(relicImg, r.x - camera.x - r.size / 2, r.y - camera.y - r.size / 2, r.size, r.size);
+                });
+                manaOrbs.forEach(orb => {
+                    ctx.drawImage(manaOrbImg, orb.x - camera.x - orb.size / 2, orb.y - camera.y - orb.size / 2, orb.size, orb.size);
+                });
+
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(10, 10, 200 * (player.health / player.maxHealth), 20);
+                ctx.strokeStyle = '#ffffff';
+                ctx.strokeRect(10, 10, 200, 20);
+
+                ctx.fillStyle = '#0000ff';
+                ctx.fillRect(10, 40, 200 * (player.manaPoints / player.maxMana), 20);
+                ctx.strokeStyle = '#ffffff';
+                ctx.strokeRect(10, 40, 200, 20);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '20px Arial';
+                ctx.fillText(`Spell: ${currentSpell} (Lv${spells[currentSpell].level}) (1:Fire, 2:Ice, 3:Wind, Click:Shoot)`, 10, 90);
+                ctx.fillText(`Upgrade Cost: ${spells[currentSpell].upgradeCost} (U to Upgrade)`, 10, 110);
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            updatePlayer();
+            updateProjectiles();
+            updateEnemies();
+            updateManaOrbs();
+            updateRelics();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initialize
+        generateMap();
+        setInterval(spawnEnemy, 3000);
+        setInterval(spawnRelic, 10000);
+        gameLoop();
+    </script>
+</body>
+</html>
