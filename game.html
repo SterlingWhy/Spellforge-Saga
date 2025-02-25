@@ -2,12 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spellforge Saga</title>
     <style>
-        canvas {
-            border: 1px solid black;
-            background-color: #1a1a1a;
-        }
         body {
             display: flex;
             justify-content: center;
@@ -15,8 +12,38 @@
             height: 100vh;
             margin: 0;
             background-color: #333;
+            font-family: Arial, sans-serif;
         }
-        #gameOverScreen {
+        #gameContainer {
+            display: flex;
+            flex-direction: row;
+        }
+        #gameCanvas {
+            border: 1px solid black;
+            background-color: #1a1a1a;
+            display: none;
+        }
+        #logContainer {
+            margin-left: 20px;
+            width: 300px;
+            height: 1080px;
+            overflow-y: auto;
+            background-color: #222;
+            color: #fff;
+            padding: 10px;
+            display: none;
+        }
+        #logText {
+            width: 100%;
+            height: 100%;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            resize: none;
+            overflow-y: auto;
+        }
+        #startScreen, #gameOverScreen, #levelCompleteScreen {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -24,62 +51,94 @@
             background-color: rgba(0, 0, 0, 0.8);
             padding: 20px;
             text-align: center;
-            display: none;
+        }
+        #startScreen h1 {
+            color: #ffffff;
         }
         #gameOverScreen h1 {
             color: #ff0000;
-            font-family: Arial, sans-serif;
         }
-        #retryButton {
+        #levelCompleteScreen h1 {
+            color: #00ff00;
+        }
+        #startButton, #retryButton, #nextLevelButton {
             padding: 10px 20px;
             font-size: 18px;
             background-color: #00ff00;
             border: none;
             cursor: pointer;
         }
-        #retryButton:hover {
+        #startButton:hover, #retryButton:hover, #nextLevelButton:hover {
             background-color: #00cc00;
+        }
+        #startScreen {
+            display: block;
+        }
+        #gameOverScreen, #levelCompleteScreen {
+            display: none;
         }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="1600" height="1200"></canvas>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1920" height="1080"></canvas>
+        <div id="logContainer">
+            <textarea id="logText" readonly></textarea>
+        </div>
+    </div>
+    <div id="startScreen">
+        <h1>Spellforge Saga</h1>
+        <button id="startButton">Start Game</button>
+    </div>
     <div id="gameOverScreen">
         <h1>Game Over</h1>
         <button id="retryButton">Retry</button>
+    </div>
+    <div id="levelCompleteScreen">
+        <h1>Level Complete!</h1>
+        <button id="nextLevelButton">Next Level</button>
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
         const gameOverScreen = document.getElementById('gameOverScreen');
+        const levelCompleteScreen = document.getElementById('levelCompleteScreen');
+        const logContainer = document.getElementById('logContainer');
+        const logText = document.getElementById('logText');
+        const startButton = document.getElementById('startButton');
         const retryButton = document.getElementById('retryButton');
+        const nextLevelButton = document.getElementById('nextLevelButton');
 
-        // Load sprites
-        const playerImg = new Image(); playerImg.src = 'path/to/player.png';
-        const fireImg = new Image(); fireImg.src = 'path/to/fire.png';
-        const iceImg = new Image(); iceImg.src = 'path/to/ice.png';
-        const windImg = new Image(); windImg.src = 'path/to/wind.png';
-        const enemyImg = new Image(); enemyImg.src = 'path/to/enemy.png';
-        const relicImg = new Image(); relicImg.src = 'path/to/relic.png';
-        const manaOrbImg = new Image(); manaOrbImg.src = 'path/to/mana_orb.png';
+        // Load sprites with error handling
+        const playerImg = new Image(); playerImg.src = 'path/to/player.png'; playerImg.onerror = () => log("Player sprite failed to load");
+        const fireImg = new Image(); fireImg.src = 'path/to/fire.png'; fireImg.onerror = () => log("Fire sprite failed to load");
+        const iceImg = new Image(); iceImg.src = 'path/to/ice.png'; iceImg.onerror = () => log("Ice sprite failed to load");
+        const windImg = new Image(); windImg.src = 'path/to/wind.png'; windImg.onerror = () => log("Wind sprite failed to load");
+        const enemyImg = new Image(); enemyImg.src = 'path/to/enemy.png'; enemyImg.onerror = () => log("Enemy sprite failed to load");
+        const relicImg = new Image(); relicImg.src = 'path/to/relic.png'; relicImg.onerror = () => log("Relic sprite failed to load");
+        const manaOrbImg = new Image(); manaOrbImg.src = 'path/to/mana_orb.png'; manaOrbImg.onerror = () => log("Mana orb sprite failed to load");
+        const doorImg = new Image(); doorImg.src = 'path/to/door.png'; doorImg.onerror = () => log("Door sprite failed to load");
 
-        // Load sounds
-        const shootSound = new Audio('path/to/shoot.wav');
-        const relicSound = new Audio('path/to/relic.wav');
-        const enemyDieSound = new Audio('path/to/enemy_die.wav');
-        const bumpSound = new Audio('path/to/bump.wav');
+        // Load sounds with error handling
+        const shootSound = new Audio('path/to/shoot.wav'); shootSound.onerror = () => log("Shoot sound failed to load");
+        const relicSound = new Audio('path/to/relic.wav'); relicSound.onerror = () => log("Relic sound failed to load");
+        const enemyDieSound = new Audio('path/to/enemy_die.wav'); enemyDieSound.onerror = () => log("Enemy die sound failed to load");
+        const bumpSound = new Audio('path/to/bump.wav'); bumpSound.onerror = () => log("Bump sound failed to load");
 
         // Player object
         const player = {
             x: 400,
             y: 300,
             size: 40,
-            speed: 5,
+            speed: 1.25,
             health: 100,
             maxHealth: 100,
             manaPoints: 0,
-            maxMana: 50
+            maxMana: 50,
+            points: 0,
+            atDoor: false
         };
 
         // Camera object
@@ -99,6 +158,9 @@
         let mouseX = 0;
         let mouseY = 0;
         let gameOver = false;
+        let levelComplete = false;
+        let gameStarted = false;
+        let door = { x: 0, y: 0, size: 40 };
 
         // Spell system
         const spells = {
@@ -108,57 +170,95 @@
         };
         let currentSpell = 'fire';
 
-        // Doubled dungeon map
+        // Dungeon map
         const tileSize = 40;
-        const mapWidth = 60; // Doubled from 30
-        const mapHeight = 40; // Doubled from 20
-        const mapPixelWidth = mapWidth * tileSize; // 2400px
-        const mapPixelHeight = mapHeight * tileSize; // 1600px
+        const mapWidth = 60;
+        const mapHeight = 40;
+        const mapPixelWidth = mapWidth * tileSize;
+        const mapPixelHeight = mapHeight * tileSize;
         let map = [];
+
+        // Log function
+        function log(message) {
+            logText.value += `${new Date().toLocaleTimeString()}: ${message}\n`;
+            logText.scrollTop = logText.scrollHeight; // Auto-scroll to bottom
+        }
 
         // Event listeners
         window.addEventListener('keydown', (e) => {
-            keys[e.key.toLowerCase()] = true;
-            if (e.key === '1') currentSpell = 'fire';
-            if (e.key === '2') currentSpell = 'ice';
-            if (e.key === '3') currentSpell = 'wind';
-            if (e.key.toLowerCase() === 'u') upgradeSpell();
+            if (gameStarted) {
+                keys[e.key.toLowerCase()] = true;
+                if (e.key === '1') currentSpell = 'fire';
+                if (e.key === '2') currentSpell = 'ice';
+                if (e.key === '3') currentSpell = 'wind';
+                if (e.key.toLowerCase() === 'u') upgradeSpell();
+            }
         });
-        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+        window.addEventListener('keyup', (e) => {
+            if (gameStarted) keys[e.key.toLowerCase()] = false;
+        });
         canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            mouseX = e.clientX - rect.left + camera.x;
-            mouseY = e.clientY - rect.top + camera.y;
+            if (gameStarted) {
+                const rect = canvas.getBoundingClientRect();
+                mouseX = e.clientX - rect.left + camera.x;
+                mouseY = e.clientY - rect.top + camera.y;
+            }
         });
         canvas.addEventListener('click', shootSpell);
+        startButton.addEventListener('click', startGame);
         retryButton.addEventListener('click', resetGame);
+        nextLevelButton.addEventListener('click', nextLevel);
 
-        // Generate larger map
+        // Generate map
         function generateMap() {
             map = Array(mapHeight).fill().map(() => Array(mapWidth).fill('wall'));
             let x = Math.floor(mapWidth / 2);
             let y = Math.floor(mapHeight / 2);
             map[y][x] = 'floor';
-            for (let i = 0; i < 200; i++) { // Increased steps for larger map
+            const visited = new Set([`${x},${y}`]);
+            let doorX, doorY;
+
+            for (let i = 0; i < 200; i++) {
                 let direction = Math.floor(Math.random() * 4);
-                if (direction === 0 && y > 1) y--;
-                if (direction === 1 && y < mapHeight - 2) y++;
-                if (direction === 2 && x > 1) x--;
-                if (direction === 3 && x < mapWidth - 2) x++;
-                map[y][x] = 'floor';
+                let newX = x, newY = y;
+                if (direction === 0 && y > 1) newY--;
+                if (direction === 1 && y < mapHeight - 2) newY++;
+                if (direction === 2 && x > 1) newX--;
+                if (direction === 3 && x < mapWidth - 2) newX++;
+
+                if (!visited.has(`${newX},${newY}`)) {
+                    map[newY][newX] = 'floor';
+                    visited.add(`${newX},${newY}`);
+                    x = newX;
+                    y = newY;
+                }
+
+                if (i === 100) {
+                    doorX = x;
+                    doorY = y;
+                }
             }
-            map[mapHeight - 2][mapWidth - 2] = 'exit';
-            player.x = x * tileSize + tileSize / 2;
-            player.y = y * tileSize + tileSize / 2;
+
+            player.x = Math.floor(mapWidth / 2) * tileSize + tileSize / 2;
+            player.y = Math.floor(mapHeight / 2) * tileSize + tileSize / 2;
+            door.x = doorX * tileSize + tileSize / 2;
+            door.y = doorY * tileSize + tileSize / 2;
+            log("Map generated");
         }
 
         function drawMap() {
-            for (let y = 0; y < mapHeight; y++) {
-                for (let x = 0; x < mapWidth; x++) {
-                    ctx.fillStyle = map[y][x] === 'wall' ? '#555' : map[y][x] === 'exit' ? '#ff0' : '#222';
+            const startX = Math.floor(camera.x / tileSize);
+            const endX = Math.min(mapWidth, Math.ceil((camera.x + camera.width) / tileSize));
+            const startY = Math.floor(camera.y / tileSize);
+            const endY = Math.min(mapHeight, Math.ceil((camera.y + camera.height) / tileSize));
+
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    ctx.fillStyle = map[y][x] === 'wall' ? '#555' : '#222';
                     ctx.fillRect(x * tileSize - camera.x, y * tileSize - camera.y, tileSize, tileSize);
                 }
             }
+            ctx.drawImage(doorImg, door.x - camera.x - door.size / 2, door.y - camera.y - door.size / 2, door.size, door.size);
         }
 
         // Update camera
@@ -190,7 +290,7 @@
 
         // Player movement
         function updatePlayer() {
-            if (gameOver) return;
+            if (!gameStarted || gameOver || levelComplete) return;
 
             let dx = 0;
             let dy = 0;
@@ -204,6 +304,7 @@
                 player.x = newX;
             } else {
                 bumpSound.play();
+                log("Player bumped into wall");
             }
 
             let newY = player.y + dy;
@@ -211,6 +312,19 @@
                 player.y = newY;
             } else if (dx === 0) {
                 bumpSound.play();
+                log("Player bumped into wall");
+            }
+
+            if (Math.hypot(player.x - door.x, player.y - door.y) < player.size / 2 + door.size / 2) {
+                player.atDoor = true;
+            } else {
+                player.atDoor = false;
+            }
+
+            if (player.atDoor && enemies.length === 0) {
+                levelComplete = true;
+                levelCompleteScreen.style.display = 'block';
+                log("Level completed");
             }
 
             updateCamera();
@@ -222,7 +336,7 @@
             const closedSet = new Set();
             const cameFrom = {};
 
-            while (openSet.length > 0) {
+            while (openSet.length > 0 && openSet.length < 1000) {
                 openSet.sort((a, b) => a.f - b.f);
                 const current = openSet.shift();
                 const key = `${current.x},${current.y}`;
@@ -267,10 +381,11 @@
 
         // Spell shooting
         function shootSpell() {
-            if (gameOver) return;
+            if (!gameStarted || gameOver || levelComplete) return;
             const dx = mouseX - player.x;
             const dy = mouseY - player.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance === 0) return; // Prevent division by zero
             const speed = 7;
             const spell = {
                 x: player.x,
@@ -284,11 +399,13 @@
             spell.slow = spells[currentSpell].slow + (spells[currentSpell].level - 1) * 0.2;
             spell.knockback = spells[currentSpell].knockback + (spells[currentSpell].level - 1) * 5;
             projectiles.push(spell);
-            shootSound.play();
+            shootSound.play().catch(() => log("Shoot sound playback failed"));
+            log("Spell cast");
         }
 
         function updateProjectiles() {
-            projectiles.forEach((p, i) => {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
                 const newX = p.x + p.vx;
                 const newY = p.y + p.vy;
                 if (checkCollision(newX, newY, p.size) || newX < 0 || newX > mapPixelWidth || newY < 0 || newY > mapPixelHeight) {
@@ -297,16 +414,17 @@
                     p.x = newX;
                     p.y = newY;
                 }
-            });
+            }
         }
 
-        // Enemies
+        // Enemy spawning
         function spawnEnemy() {
             let x, y;
             do {
                 x = Math.random() * mapPixelWidth;
                 y = Math.random() * mapPixelHeight;
             } while (checkCollision(x, y, 30));
+            const isRoaming = Math.random() < 0.5;
             enemies.push({
                 x: x,
                 y: y,
@@ -314,48 +432,82 @@
                 speed: 0.5,
                 health: 50,
                 path: [],
-                lastPathUpdate: 0
+                lastPathUpdate: 0,
+                roaming: isRoaming,
+                roamTargetX: x,
+                roamTargetY: y,
+                roamTimer: 0
             });
+            log("Enemy spawned");
         }
 
         function updateEnemies() {
-            enemies.forEach((e, ei) => {
+            const enemiesToRemove = new Set(); // Track enemies to remove safely
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
                 const now = Date.now();
-                if (now - e.lastPathUpdate > 1000) {
-                    const startX = Math.floor(e.x / tileSize);
-                    const startY = Math.floor(e.y / tileSize);
-                    const goalX = Math.floor(player.x / tileSize);
-                    const goalY = Math.floor(player.y / tileSize);
-                    e.path = aStar(startX, startY, goalX, goalY) || [];
-                    e.lastPathUpdate = now;
-                }
+                if (e.roaming) {
+                    if (now - e.roamTimer > 3000) {
+                        do {
+                            e.roamTargetX = e.x + (Math.random() - 0.5) * 200;
+                            e.roamTargetY = e.y + (Math.random() - 0.5) * 200;
+                        } while (checkCollision(e.roamTargetX, e.roamTargetY, e.size) ||
+                                 e.roamTargetX < 0 || e.roamTargetX > mapPixelWidth ||
+                                 e.roamTargetY < 0 || e.roamTargetY > mapPixelHeight);
+                        e.roamTimer = now;
+                    }
 
-                if (e.path.length > 1) {
-                    const nextTile = e.path[1];
-                    const targetX = nextTile.x * tileSize + tileSize / 2;
-                    const targetY = nextTile.y * tileSize + tileSize / 2;
-                    const dx = targetX - e.x;
-                    const dy = targetY - e.y;
+                    const dx = e.roamTargetX - e.x;
+                    const dy = e.roamTargetY - e.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     if (distance > e.speed) {
-                        e.x += (dx / distance) * e.speed;
-                        e.y += (dy / distance) * e.speed;
-                    } else {
-                        e.x = targetX;
-                        e.y = targetY;
-                        e.path.shift();
+                        const newX = e.x + (dx / distance) * e.speed;
+                        const newY = e.y + (dy / distance) * e.speed;
+                        if (!checkCollision(newX, newY, e.size)) {
+                            e.x = newX;
+                            e.y = newY;
+                        }
+                    }
+                } else {
+                    if (now - e.lastPathUpdate > 2000) {
+                        const startX = Math.floor(e.x / tileSize);
+                        const startY = Math.floor(e.y / tileSize);
+                        const goalX = Math.floor(player.x / tileSize);
+                        const goalY = Math.floor(player.y / tileSize);
+                        e.path = aStar(startX, startY, goalX, goalY) || [];
+                        e.lastPathUpdate = now;
+                    }
+
+                    if (e.path && e.path.length > 1) { // Check if path exists
+                        const nextTile = e.path[1];
+                        const targetX = nextTile.x * tileSize + tileSize / 2;
+                        const targetY = nextTile.y * tileSize + tileSize / 2;
+                        const dx = targetX - e.x;
+                        const dy = targetY - e.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance > e.speed) {
+                            e.x += (dx / distance) * e.speed;
+                            e.y += (dy / distance) * e.speed;
+                        } else {
+                            e.x = targetX;
+                            e.y = targetY;
+                            e.path.shift();
+                        }
                     }
                 }
 
                 if (Math.hypot(player.x - e.x, player.y - e.y) < player.size / 2 + e.size / 2) {
                     player.health -= 1;
+                    log("Player hit by enemy");
                     if (player.health <= 0) {
                         gameOver = true;
                         gameOverScreen.style.display = 'block';
+                        log("Game over");
                     }
                 }
 
-                projectiles.forEach((p, pi) => {
+                for (let pi = projectiles.length - 1; pi >= 0; pi--) {
+                    const p = projectiles[pi];
                     if (Math.hypot(p.x - e.x, p.y - e.y) < e.size / 2 + p.size / 2) {
                         e.health -= p.damage;
                         if (p.knockback) {
@@ -365,13 +517,19 @@
                         if (p.slow) e.speed = Math.max(0.5, 2 - p.slow);
                         projectiles.splice(pi, 1);
                         if (e.health <= 0) {
-                            enemies.splice(ei, 1);
-                            enemyDieSound.play();
+                            enemiesToRemove.add(i);
+                            enemyDieSound.play().catch(() => log("Enemy die sound playback failed"));
                             spawnManaOrb(e.x, e.y);
+                            player.points += 10;
+                            log(`Enemy killed at (${Math.round(e.x)}, ${Math.round(e.y)})`);
+                            break;
                         }
                     }
-                });
-            });
+                }
+            }
+
+            // Remove dead enemies after iteration
+            enemies = enemies.filter((_, index) => !enemiesToRemove.has(index));
         }
 
         // Mana Orbs
@@ -381,25 +539,29 @@
                 y: y,
                 size: 20
             });
+            log("Mana orb spawned");
         }
 
         function updateManaOrbs() {
-            manaOrbs.forEach((orb, i) => {
+            for (let i = manaOrbs.length - 1; i >= 0; i--) {
+                const orb = manaOrbs[i];
                 if (Math.hypot(player.x - orb.x, player.y - orb.y) < player.size / 2 + orb.size / 2) {
                     player.manaPoints = Math.min(player.maxMana, player.manaPoints + 1);
                     manaOrbs.splice(i, 1);
+                    log("Mana orb collected");
                 }
-            });
+            }
         }
 
         // Spell Upgrade
         function upgradeSpell() {
-            if (gameOver) return;
+            if (!gameStarted || gameOver || levelComplete) return;
             const spell = spells[currentSpell];
             if (spell.level < spell.maxLevel && player.manaPoints >= spell.upgradeCost) {
                 player.manaPoints -= spell.upgradeCost;
                 spell.level += 1;
                 spell.upgradeCost += 5;
+                log(`${currentSpell} upgraded to level ${spell.level}`);
             }
         }
 
@@ -421,39 +583,68 @@
                 y: y,
                 size: 20
             });
+            log("Relic spawned");
         }
 
         function updateRelics() {
-            relics.forEach((r, i) => {
+            for (let i = relics.length - 1; i >= 0; i--) {
+                const r = relics[i];
                 if (Math.hypot(player.x - r.x, player.y - r.y) < player.size / 2 + r.size / 2) {
                     player.speed += 1;
                     player.health = Math.min(player.maxHealth, player.health + 20);
                     relics.splice(i, 1);
-                    relicSound.play();
+                    relicSound.play().catch(() => log("Relic sound playback failed"));
+                    player.points += 20;
+                    log("Relic collected");
                 }
-            });
+            }
         }
 
-        // Reset game function
+        // Start game
+        function startGame() {
+            gameStarted = true;
+            startScreen.style.display = 'none';
+            canvas.style.display = 'block';
+            logContainer.style.display = 'block';
+            generateMap();
+            setInterval(spawnEnemy, 3000);
+            setInterval(spawnRelic, 10000);
+            log("Game started");
+        }
+
+        // Reset game
         function resetGame() {
             player.health = 100;
             player.manaPoints = 0;
+            player.points = 0;
+            player.speed = 1.25;
+            player.atDoor = false;
             player.x = mapWidth / 2 * tileSize + tileSize / 2;
             player.y = mapHeight / 2 * tileSize + tileSize / 2;
             enemies = [];
             projectiles = [];
             relics = [];
             manaOrbs = [];
+            logText.value = ''; // Clear log
             resetSpells();
             gameOver = false;
+            levelComplete = false;
             gameOverScreen.style.display = 'none';
+            levelCompleteScreen.style.display = 'none';
             generateMap();
+            log("Game reset");
+        }
+
+        // Next level
+        function nextLevel() {
+            resetGame();
+            log("Next level started");
         }
 
         // Drawing
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (!gameOver) {
+            if (gameStarted && !gameOver && !levelComplete) {
                 drawMap();
 
                 ctx.drawImage(playerImg, player.x - camera.x - player.size / 2, player.y - camera.y - player.size / 2, player.size, player.size);
@@ -471,37 +662,38 @@
                 });
 
                 ctx.fillStyle = '#ff0000';
-                ctx.fillRect(10, 10, 200 * (player.health / player.maxHealth), 20);
+                ctx.fillRect(10, 10, 300 * (player.health / player.maxHealth), 30);
                 ctx.strokeStyle = '#ffffff';
-                ctx.strokeRect(10, 10, 200, 20);
+                ctx.strokeRect(10, 10, 300, 30);
 
                 ctx.fillStyle = '#0000ff';
-                ctx.fillRect(10, 40, 200 * (player.manaPoints / player.maxMana), 20);
+                ctx.fillRect(10, 50, 300 * (player.manaPoints / player.maxMana), 30);
                 ctx.strokeStyle = '#ffffff';
-                ctx.strokeRect(10, 40, 200, 20);
+                ctx.strokeRect(10, 50, 300, 30);
 
                 ctx.fillStyle = '#ffffff';
-                ctx.font = '20px Arial';
-                ctx.fillText(`Spell: ${currentSpell} (Lv${spells[currentSpell].level}) (1:Fire, 2:Ice, 3:Wind, Click:Shoot)`, 10, 90);
-                ctx.fillText(`Upgrade Cost: ${spells[currentSpell].upgradeCost} (U to Upgrade)`, 10, 110);
+                ctx.font = '24px Arial';
+                ctx.fillText(`Points: ${player.points}`, 10, 110);
+                ctx.fillText(`Spell: ${currentSpell} (Lv${spells[currentSpell].level}) (1:Fire, 2:Ice, 3:Wind, Click:Shoot)`, 10, 140);
+                ctx.fillText(`Upgrade Cost: ${spells[currentSpell].upgradeCost} (U to Upgrade)`, 10, 170);
+                ctx.fillText(`Enemies Remaining: ${enemies.length}`, 10, 200);
             }
         }
 
         // Game loop
         function gameLoop() {
-            updatePlayer();
-            updateProjectiles();
-            updateEnemies();
-            updateManaOrbs();
-            updateRelics();
+            if (gameStarted) {
+                updatePlayer();
+                updateProjectiles();
+                updateEnemies();
+                updateManaOrbs();
+                updateRelics();
+            }
             draw();
             requestAnimationFrame(gameLoop);
         }
 
-        // Initialize
-        generateMap();
-        setInterval(spawnEnemy, 3000);
-        setInterval(spawnRelic, 10000);
+        // Start the loop
         gameLoop();
     </script>
 </body>
